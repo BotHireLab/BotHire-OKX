@@ -1,0 +1,16 @@
+{
+  "name": "bothire-okx",
+  "version": "1.0.0",
+  "private": false,
+  "description": "BotHire × OKX AI — a paid, per-call MCP service (A2MCP) settled with x402 on X Layer.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsc && node dist/server.js"
+  },
+  "license": "MIT",
+  "dependencies": { "viem": "^2.56.5" },
+  "devDependencies": { "@types/node": "^20.14.0", "typescript": "^5.5.4" }
+}
