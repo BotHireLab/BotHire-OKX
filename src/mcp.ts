@@ -29,10 +29,10 @@ const TOOLS = [
     name: 'find_agent_for_task',
     title: 'Find the right AI agent for a task (paid, per call)',
     description:
-      'Describe a job in plain language; get back a ranked shortlist of AI agents on BotHire that can do it — ' +
-      'each with live price, trust score, completed hires, provider wallet, and a ready-to-use hire plan. ' +
-      'Searches live marketplace supply, not a static index. Paid per call: the first call without payment ' +
-      'returns x402 payment requirements.',
+      'Describe a job in plain language; get back a ranked shortlist of hireable BotHire listings — each ' +
+      'with live price, completed-hire count, how many of your keywords it matched, and the exact call to ' +
+      'hire it. Searches live marketplace supply, not a static index. Paid per call, and if nothing ' +
+      'matches you are told so and NOT charged. The first call without payment returns x402 requirements.',
     annotations: { readOnlyHint: true, openWorldHint: true },
     inputSchema: S({
       task: { type: 'string', description: 'What needs doing, e.g. "turn this script into a 30s avatar video".' },
@@ -48,46 +48,74 @@ const text = (payload: unknown, isError = false) => ({
   ...(isError ? { isError: true } : {}),
 });
 
-/** The actual paid work: rank live BotHire supply against a plain-language task. */
+/** Words too common to narrow anything down. */
+const STOPWORDS = new Set(('a an and are as at be by can could do does for from get give go has have how i in into is it just make me my need of on or please that the then this to turn up us use want was we what when where which who will with would your').split(' '));
+
+/**
+ * Find hireable listings for a plain-language task.
+ *
+ * Two things learned the expensive way, by running this with real money:
+ *  - hires resolve against POSTS. Skill-search entries are a different collection whose ids cannot be
+ *    hired, so recommending them hands the caller instructions that fail.
+ *  - `?q=` is a literal substring regex over title and description, so a whole sentence matches nothing.
+ *    "turn a short script into a 30 second avatar video" returned zero; "avatar video" returned five.
+ *    So: strip filler words, query the distinctive ones separately, merge, and rank by keyword hits.
+ */
+export async function searchHireablePosts(task: string, ceilingUsdc: number, limit = 5): Promise<any[]> {
+  const words = String(task || '').toLowerCase().match(/[a-z0-9][a-z0-9+.-]{2,}/g) || [];
+  const keywords = [...new Set(words.filter((w) => !STOPWORDS.has(w)))].slice(0, 5);
+  const queries = keywords.length ? keywords : [''];
+
+  const byId = new Map<string, { post: any; hits: number }>();
+  await Promise.all(queries.map(async (kw) => {
+    const q = new URLSearchParams({ limit: '20' });
+    if (kw) q.set('q', kw);
+    try {
+      const r = await fetch(`${BOTHIRE_API}/api/posts?${q}`, { headers: { accept: 'application/json' } });
+      const b: any = await r.json().catch(() => ({}));
+      for (const p of (b?.posts ?? b?.items ?? b?.results ?? [])) {
+        const id = p?._id; if (!id) continue;
+        const prev = byId.get(id);
+        if (prev) prev.hits += 1; else byId.set(id, { post: p, hits: 1 });
+      }
+    } catch { /* one keyword failing must not sink the search */ }
+  }));
+
+  const affordable = [...byId.values()].filter(({ post }) => {
+    const price = Number(post.price_usdc);
+    return Number.isFinite(price) && price > 0 && price <= ceilingUsdc;
+  });
+  affordable.sort((a, b) =>
+    (b.hits - a.hits)
+    || (Number(b.post.hires_count || 0) - Number(a.post.hires_count || 0))
+    || (Number(a.post.price_usdc) - Number(b.post.price_usdc)));
+  return affordable.slice(0, limit).map(({ post, hits }) => ({ ...post, _keyword_hits: hits }));
+}
+
+/** The paid work: rank live, hireable BotHire supply against a plain-language task. */
 async function findAgentForTask(args: Record<string, any>) {
   const task = String(args.task || '').trim();
   if (!task) return text('task is required — describe the job in plain language.', true);
   const limit = Math.min(Math.max(Math.floor(Number(args.limit) || 5), 1), 10);
-  const maxPrice = Number(args.max_price_usdc);
+  const mp = Number(args.max_price_usdc);
+  const ceiling = Number.isFinite(mp) && mp > 0 ? mp : Number.MAX_SAFE_INTEGER;
 
-  const q = new URLSearchParams({ q: task, limit: '30' });
-  if (Number.isFinite(maxPrice) && maxPrice > 0) q.set('max_price', String(maxPrice));
-  const res = await fetch(`${BOTHIRE_API}/api/skills/search?${q}`, { headers: { accept: 'application/json' } });
-  const body: any = await res.json().catch(() => ({}));
-  const skills: any[] = body?.skills ?? body?.results ?? [];
-
-  const ranked = skills.map((s) => {
-    const hires = Number(s.hire_count ?? 0);
-    const trust = Number(s.trust_score ?? s.bot_trust_score ?? 0);
-    const rating = Number(s.rating ?? 0);
-    // Explainable on purpose: proven delivery first, then reputation, then price.
-    const score = hires * 3 + trust / 10 + rating * 4 - Math.min(Number(s.price_usdc) || 0, 50) / 10;
-    return {
-      skill_id: s._id ?? s.id,
-      title: s.name ?? s.title,
-      provider: s.bot_name ?? s.bot_id,
-      price_usdc: s.price_usdc,
-      price_type: s.price_type,
-      trust_score: trust || null,
-      completed_hires: hires || null,
-      url: `${BOTHIRE_API}/skill/${s._id ?? s.id}`,
-      how_to_hire: `POST ${BOTHIRE_API}/api/hires { "post_id": "${s._id ?? s.id}" } then pay the returned payment_required (gasless on Base, Arbitrum, BNB Chain and X Layer).`,
-      _score: score,
-    };
-  }).sort((a, b) => b._score - a._score).slice(0, limit).map(({ _score, ...r }) => r);
-
+  const posts = await searchHireablePosts(task, ceiling, limit);
   return text({
     task,
-    candidates_found: skills.length,
-    returned: ranked.length,
-    ranked_by: 'completed hires, then trust and rating, then price',
-    candidates: ranked,
-    note: ranked.length ? undefined : 'No live listing matched. Try broader wording, or post it as an open need on BotHire.',
+    returned: posts.length,
+    ranked_by: 'keywords matched, then completed hires, then price',
+    candidates: posts.map((p: any) => ({
+      post_id: p._id,
+      title: p.title ?? p.name,
+      provider: p.bot_name ?? p.bot_id,
+      price_usdc: p.price_usdc,
+      price_type: p.price_type,
+      completed_hires: Number(p.hires_count || 0) || null,
+      matched_keywords: p._keyword_hits,
+      url: `${BOTHIRE_API}/skill/${p._id}`,
+      how_to_hire: `POST ${BOTHIRE_API}/api/hires { "post_id": "${p._id}" } then pay the returned payment_required (gasless on Base, Arbitrum, BNB Chain and X Layer).`,
+    })),
   });
 }
 
@@ -137,6 +165,19 @@ export async function handleRpc(msg: any, xPaymentHeader: string | null, resourc
       // Never invent a payee. With none configured the service refuses to sell rather than take money
       // to an address nobody chose.
       if (!PAYEE) return { body: ok(text('This service is not accepting payments yet (PAYEE_ADDRESS is unset).', true)) };
+
+      // Nothing to sell, no charge. Taking a fee for an empty list is not a service, and x402 bills
+      // before the tool runs — so the check has to happen here, not after.
+      {
+        const mp = Number(args.max_price_usdc);
+        const found = await searchHireablePosts(String(args.task || ''), Number.isFinite(mp) && mp > 0 ? mp : Number.MAX_SAFE_INTEGER, 1);
+        if (!found.length) {
+          return { body: ok(text({
+            error: 'No hireable listing matched that task — you have not been charged.',
+            suggestion: 'Try broader wording, or raise max_price_usdc.',
+          }, true)) };
+        }
+      }
 
       const payment = decodePayment(xPaymentHeader);
       if (!payment) {

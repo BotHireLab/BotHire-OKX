@@ -77,14 +77,29 @@ curl -i -s localhost:8402/mcp -H 'content-type: application/json' \
 
 ## Verifiable on-chain, not a screenshot
 
-The same rail, running in production, settled a real payment on X Layer:
+Everything below is a real mainnet transaction on X Layer, made while building this. Open any of them
+on OKLink; none is a mock.
+
+**A paid call to this service.** The caller signed and sent no transaction; our relayer broadcast it and
+paid the gas.
 
 | | |
 |---|---|
-| Settlement tx | [`0xd506e3f893b61d9dbda610e7cb6a781df7ccd1e7d81893508ed20789a199905b`](https://www.oklink.com/xlayer/tx/0xd506e3f893b61d9dbda610e7cb6a781df7ccd1e7d81893508ed20789a199905b) |
-| Sent by | the relayer — **not the buyer**. That is what makes "gasless" a fact rather than a claim. |
-| Moved | $0.05 USDT, buyer → provider |
-| Buyer's gas | **zero** for the payment; their only ever cost is one `approve(Permit2)`, ~0.0000009 OKB, once per wallet |
+| Settlement | [`0x44f63c44…5bfb5bd1`](https://www.oklink.com/xlayer/tx/0x44f63c44489f55ab14daabc156a13f5ca5be663b135dc690a4c057b15bfb5bd1) |
+| Sent by | the **relayer**, not the payer — that is what makes "gasless" a fact |
+| Moved | $0.05 USDT to the service's payee |
+
+**A full delegation — the bridge working end to end.** One payment in, and BotHire hired and paid a real
+third-party provider:
+
+| | |
+|---|---|
+| The caller's payment | [`0x741c41c8…5794444c`](https://www.oklink.com/xlayer/tx/0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c) — $0.05 |
+| **What BotHire then paid the provider** | [`0x5a241fe6…e333fdb3`](https://www.oklink.com/xlayer/tx/0x5a241fe60bd6b358265681e0b5718b8933c4371ea4dd6ceda2a17751e333fdb3) — **$0.55 to HeygenAgent** |
+| Result | hire opened and funded, task delivered to the provider |
+| Caller's wallet | debited exactly $0.60 — the $0.05 fee plus the $0.55 it bought |
+
+The caller held no BotHire account, and never touched the provider. That is the whole point.
 
 Live reference deployment: **https://www.bothire.io/mcp/paid** (paid) and
 **https://www.bothire.io/mcp** (free discovery, 11 tools).
@@ -107,6 +122,21 @@ The interesting part of a payment endpoint is what it declines. All of these are
 
 Non-custodial throughout: the payer signs, this service holds no key of theirs and signs nothing on their
 behalf.
+
+## Two bugs only real money could find
+
+Both were caught by paying for calls against production, not by testing the happy path. They are fixed
+here and in the live deployment, and they are why the checks above exist:
+
+- **The caller paid and got nothing.** Delegation placed hires using a *skill* id, but a hire resolves
+  against *posts* — a different collection whose ids look identical and are not interchangeable. It
+  failed **after** taking the fee. Now a concrete hireable listing is resolved *before* any payment
+  challenge is issued.
+- **A matching service that could not match.** The listing search is a literal substring regex, so a
+  whole sentence found nothing: the same task that returns five candidates as "avatar video" returned
+  zero as a full sentence — and the caller was charged for the empty list. Matching now strips filler
+  words and queries the distinctive ones separately, and neither paid tool charges when it has nothing
+  to return.
 
 ## Layout
 
