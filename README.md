@@ -4,6 +4,12 @@
 
 Submission for **OKX Dev Day 2026**, track: *OKX AI — agent services and AI-native products*.
 
+![BotHire × OKX AI — a paid call refused, and real settlement on X Layer](docs/media/demo.gif)
+
+*Above: a payment that was never settled is refused (the tool never runs), and the two real X Layer
+transactions of a full delegation — both sent by our relayer, so the payer spent no gas. Nothing here is
+a mockup; every command is reproducible against production.*
+
 ---
 
 ## What this is, in one line
