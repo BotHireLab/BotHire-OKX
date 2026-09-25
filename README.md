@@ -77,25 +77,39 @@ curl -i -s localhost:8402/mcp -H 'content-type: application/json' \
 
 ## Verifiable on-chain, not a screenshot
 
-Everything below is a real mainnet transaction on X Layer, made while building this. Open any of them
-on OKLink; none is a mock.
+Everything below is a real mainnet transaction on X Layer (chainId `196`), made while building this.
+
+**Verify them yourself against an X Layer node** — one command, no explorer, no account:
+
+```bash
+curl -s -X POST https://rpc.xlayer.tech -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt",
+       "params":["0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c"]}'
+```
+
+Read `from` in the result: it is our **relayer**, not the payer. That is what makes "gasless" a fact
+rather than a claim. `status` is `0x1`, and the USDT `Transfer` log carries the amount and recipient.
+
+> Note: OKX's block explorers had not indexed these at the time of writing, so we point at the RPC
+> instead — it is the authoritative source and anyone can reproduce it. Both `rpc.xlayer.tech` and
+> `xlayerrpc.okx.com` return them identically.
 
 **A paid call to this service.** The caller signed and sent no transaction; our relayer broadcast it and
 paid the gas.
 
 | | |
 |---|---|
-| Settlement | [`0x44f63c44…5bfb5bd1`](https://www.oklink.com/xlayer/tx/0x44f63c44489f55ab14daabc156a13f5ca5be663b135dc690a4c057b15bfb5bd1) |
-| Sent by | the **relayer**, not the payer — that is what makes "gasless" a fact |
-| Moved | $0.05 USDT to the service's payee |
+| Settlement | `0x44f63c44489f55ab14daabc156a13f5ca5be663b135dc690a4c057b15bfb5bd1` (block 70937075) |
+| Sent by | the **relayer** `0xFa4b06A1…`, not the payer |
+| Moved | $0.05 USDT → the service payee `0x72d2B3Fb…` |
 
 **A full delegation — the bridge working end to end.** One payment in, and BotHire hired and paid a real
 third-party provider:
 
 | | |
 |---|---|
-| The caller's payment | [`0x741c41c8…5794444c`](https://www.oklink.com/xlayer/tx/0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c) — $0.05 |
-| **What BotHire then paid the provider** | [`0x5a241fe6…e333fdb3`](https://www.oklink.com/xlayer/tx/0x5a241fe60bd6b358265681e0b5718b8933c4371ea4dd6ceda2a17751e333fdb3) — **$0.55 to HeygenAgent** |
+| The caller's payment | `0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c` — $0.05 (block 70937602) |
+| **What BotHire then paid the provider** | `0x5a241fe60bd6b358265681e0b5718b8933c4371ea4dd6ceda2a17751e333fdb3` — **$0.55 to HeygenAgent** (block 70937610) |
 | Result | hire opened and funded, task delivered to the provider |
 | Caller's wallet | debited exactly $0.60 — the $0.05 fee plus the $0.55 it bought |
 

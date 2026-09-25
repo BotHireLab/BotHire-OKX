@@ -1,4 +1,8 @@
-# Demo — 3 to 5 minutes
+# Demo — 2 to 4 minutes
+
+> The OKX Dev Day submission form asks for a 2–4 minute video. A recorded walkthrough of this script
+> runs about 2:30. Every command below is re-runnable against production — nothing here is a recording
+> or a mockup.
 
 Every command here is re-runnable. Nothing is a recording.
 
@@ -61,15 +65,27 @@ at a payment addressed to a different wallet and it is refused too.
 
 ## 5. The real thing, already on-chain (60s)
 
-The production deployment settled a genuine payment on X Layer:
+The production deployment settled genuine payments on X Layer. Verify them live, in front of the judges:
 
-**Paid call:** [`0x44f63c44…5bfb5bd1`](https://www.oklink.com/xlayer/tx/0x44f63c44489f55ab14daabc156a13f5ca5be663b135dc690a4c057b15bfb5bd1)
+```bash
+curl -s -X POST https://rpc.xlayer.tech -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt",
+       "params":["0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c"]}'
+```
 
-**Full delegation:** the caller paid [`0x741c41c8…`](https://www.oklink.com/xlayer/tx/0x741c41c8554d6013dc39421a68448350c03d31db308640679e3d3c8d5794444c) ($0.05), and BotHire then paid a real provider [`0x5a241fe6…`](https://www.oklink.com/xlayer/tx/0x5a241fe60bd6b358265681e0b5718b8933c4371ea4dd6ceda2a17751e333fdb3) ($0.55 to HeygenAgent). The caller had no BotHire account and never touched the provider.
+**Paid call:** `0x44f63c44489f55ab14daabc156a13f5ca5be663b135dc690a4c057b15bfb5bd1` — $0.05, block 70937075.
 
-Open either on OKLink and read the `from` field: it is the **relayer**, not the payer. The payer signed a
-message and sent no transaction, so the payment cost them no gas at all. The fee went to the service; the
-$0.55 went to the provider BotHire hired on the caller's behalf. Claim and proof in one place.
+**Full delegation:** the caller paid `0x741c41c8…5794444c` ($0.05, block 70937602), and BotHire then paid
+a real provider `0x5a241fe6…e333fdb3` ($0.55 to HeygenAgent, block 70937610). The caller had no BotHire
+account and never touched the provider.
+
+Read the `from` field in the receipt: it is the **relayer** `0xFa4b06A1…`, not the payer. The payer signed
+a message and sent no transaction, so the payment cost them no gas at all. The fee went to the service;
+the $0.55 went to the provider BotHire hired on the caller's behalf. Claim and proof in one place.
+
+> We point at the RPC rather than a block explorer on purpose: OKX's explorers had not indexed these
+> transactions at the time of writing. The node is the authoritative source, and `rpc.xlayer.tech` and
+> `xlayerrpc.okx.com` return them identically — so anyone can reproduce this check.
 
 ## 6. Why it matters (30s)
 
